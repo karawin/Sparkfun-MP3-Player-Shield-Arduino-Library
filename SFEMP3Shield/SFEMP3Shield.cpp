@@ -7,7 +7,7 @@
 */
 
 #include "SFEMP3Shield.h"
-// inslude the SPI library:
+// include the SPI library:
 #include "SPI.h"
 //avr pgmspace library for storing the LUT in program flash instead of sram
 #include <avr/pgmspace.h>
@@ -137,13 +137,12 @@ uint8_t  SFEMP3Shield::begin() {
  If you are using SdFat objects other than "sd" the below may be omitted.
  or whant to save 222 bytes of Flash space.
  */
-#if (1)
+#if (0)
 if (int8_t(sd.vol()->fatType()) == 0) {
   Serial.println(F("If you get this error, you likely do not have a sd.begin in the main sketch, See Trouble Shooting Guide!"));
   Serial.println(F("http://mpflaga.github.com/Sparkfun-MP3-Player-Shield-Arduino-Library/#Troubleshooting"));
 }
 #endif
-
   pinMode(MP3_DREQ, INPUT);
   pinMode(MP3_XCS, OUTPUT);
   pinMode(MP3_XDCS, OUTPUT);
@@ -157,13 +156,22 @@ if (int8_t(sd.vol()->fatType()) == 0) {
   cs_high();  //MP3_XCS, Init Control Select to deselected
   dcs_high(); //MP3_XDCS, Init Data Select to deselected
   digitalWrite(MP3_RESET, LOW); //Put VS1053 into hardware reset
-
+Serial.println("go vainit");
+  SPI.begin(); // if a fatsd soft spi is used
   playing_state = initialized;
 
   uint8_t result = vs_init();
+
   if(result) {
     return result;
   }
+
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+  SPI.usingInterrupt(MP3_DREQINT) ;
+  csspiSettings = SPISettings( 1000000, MSBFIRST, SPI_MODE0);
+  csreadspiSettings = SPISettings( 1000000, MSBFIRST, SPI_MODE0);
+  dcsspiSettings = SPISettings(1000000, MSBFIRST, SPI_MODE0);
+  #endif
 
 #if defined(USE_MP3_REFILL_MEANS) && USE_MP3_REFILL_MEANS == USE_MP3_Timer1
   Timer1.initialize(MP3_REFILL_PERIOD);
@@ -171,7 +179,6 @@ if (int8_t(sd.vol()->fatType()) == 0) {
   timerId_mp3 = timer.setInterval(MP3_REFILL_PERIOD, refill);
   timer.disable(timerId_mp3);
 #endif
-
   return 0;
 }
 
@@ -220,12 +227,11 @@ void SFEMP3Shield::end() {
 uint8_t SFEMP3Shield::vs_init() {
 
   //Initialize VS1053 chip
-
   //Reset if not already
   delay(100); // keep clear of anything prior
   digitalWrite(MP3_RESET, LOW); //Shut down VS1053
   delay(100);
-
+Serial.println(" vainit0");
   //Bring out of reset
   digitalWrite(MP3_RESET, HIGH); //Bring up VS1053
 
@@ -244,11 +250,30 @@ uint8_t SFEMP3Shield::vs_init() {
   // set initial mp3's spi to safe rate
   spi_Read_Rate  = SPI_CLOCK_DIV16;
   spi_Write_Rate = SPI_CLOCK_DIV16;
-  delay(10);
-
+   delay(10);
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+  csspiSettings = SPISettings(1000000, MSBFIRST, SPI_MODE0);
+  csreadspiSettings = SPISettings(1000000, MSBFIRST, SPI_MODE0);
+  dcsspiSettings = SPISettings(1000000, MSBFIRST, SPI_MODE0);
+#endif
    //Let's check the status of the VS1053
-  int MP3Mode = Mp3ReadRegister(SCI_MODE);
+Serial.println(" vainit");
 
+#if ( LCSOFT == 1 ) 
+///////added to go in mp3
+   uint16_t temp1 = 0xc017;
+   uint16_t temp2 = 0xc019;
+   Mp3WriteWRAM( temp1, 3 ); // GPIO DDR register
+   Serial.println(" vainit22");
+   Mp3WriteWRAM( temp2, 0 ); // GPIO ODATA register
+   Serial.println(" vainit23");
+   Mp3WriteRegister(SCI_MODE, SM_LINE1 | SM_SDINEW | SM_RESET); // soft reset
+   delay (100); 
+/////////////////////////////////////////////////////  
+#endif
+Serial.println(" vainit2");
+
+  int MP3Mode = Mp3ReadRegister(SCI_MODE);
 /*
   Serial.print(F("SCI_Mode (0x4800) = 0x"));
   Serial.println(MP3Mode, HEX);
@@ -260,7 +285,8 @@ uint8_t SFEMP3Shield::vs_init() {
   int MP3Clock = Mp3ReadRegister(SCI_CLOCKF);
   Serial.print(F("SCI_ClockF = 0x"));
   Serial.println(MP3Clock, HEX);
-  */
+ */ 
+Serial.println(" vainit3");
 
   if(MP3Mode != (SM_LINE1 | SM_SDINEW)) return 4;
 
@@ -268,18 +294,21 @@ uint8_t SFEMP3Shield::vs_init() {
   Mp3WriteRegister(SCI_CLOCKF, 0x6000); //Set multiplier to 3.0x
   //Internal clock multiplier is now 3x.
   //Therefore, max SPI speed is 52MgHz.
-
 #if (F_CPU == 16000000 )
   spi_Read_Rate  = SPI_CLOCK_DIV4; //use safe SPI rate of (16MHz / 4 = 4MHz)
   spi_Write_Rate = SPI_CLOCK_DIV2; //use safe SPI rate of (16MHz / 2 = 8MHz)
 #else
   // must be 8000000
-  spi_Read_Rate  = SPI_CLOCK_DIV2; //use safe SPI rate of (8MHz / 2 = 4MHz)
-  spi_Write_Rate = SPI_CLOCK_DIV2; //use safe SPI rate of (8MHz / 2 = 4MHz)
+  spi_Read_Rate  = SPI_CLOCK_DIV16; //use safe SPI rate of (8MHz / 2 = 4MHz)
+  spi_Write_Rate = SPI_CLOCK_DIV16; //use safe SPI rate of (8MHz / 2 = 4MHz)
 #endif
-
   delay(10); // settle time
-
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+Serial.print("spi-read = ");Serial.println(String(spi_Read_Rate));
+  csspiSettings = SPISettings(4000000, MSBFIRST, SPI_MODE0);
+  csreadspiSettings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
+  dcsspiSettings = SPISettings(4000000, MSBFIRST, SPI_MODE0);
+#endif
   //test reading after data rate change
   int MP3Clock = Mp3ReadRegister(SCI_CLOCKF);
   if(MP3Clock != 0x6000) return 5;
@@ -288,11 +317,10 @@ uint8_t SFEMP3Shield::vs_init() {
   // one would think the following patch would over write the volume.
   // But the SCI_VOL register space is not in the VSdsp's WRAM space.
   // Note to keep an eye on it for future patches.
-
   if(VSLoadUserCode("patches.053")) return 6;
 
   delay(100); // just a good idea to let settle.
-
+Serial.println(" vainit end");
   return 0; // indicating all was good.
 }
 
@@ -404,6 +432,7 @@ uint8_t SFEMP3Shield::enableTestSineWave(uint8_t freq) {
     //Wait for DREQ to go high indicating IC is available
     while(!digitalRead(MP3_DREQ)) ;
     //Select control
+	dcsTransaction();
     dcs_low();
     //SCI consists of instruction byte, address byte, and 16-bit data word.
     SPI.transfer(0x53);
@@ -416,6 +445,7 @@ uint8_t SFEMP3Shield::enableTestSineWave(uint8_t freq) {
     SPI.transfer(0x00);
     while(!digitalRead(MP3_DREQ)) ; //Wait for DREQ to go high indicating command is complete
     dcs_high(); //Deselect Control
+	endTransaction();
   }
 
   playing_state = testing_sinewave;
@@ -453,6 +483,7 @@ uint8_t SFEMP3Shield::disableTestSineWave() {
   while(!digitalRead(MP3_DREQ)) ;
 
   //Select SPI Control channel
+  dcsTransaction();
   dcs_low();
 
   //SDI consists of instruction byte, address byte, and 16-bit data word.
@@ -465,10 +496,9 @@ uint8_t SFEMP3Shield::disableTestSineWave() {
   SPI.transfer(0x00);
   SPI.transfer(0x00);
   while(!digitalRead(MP3_DREQ)) ; //Wait for DREQ to go high indicating command is complete
-
   //Deselect SPI Control channel
   dcs_high();
-
+  endTransaction();
   // turn test mode bit off
   Mp3WriteRegister(SCI_MODE, Mp3ReadRegister(SCI_MODE) & ~SM_TESTS);
 
@@ -516,6 +546,7 @@ uint16_t SFEMP3Shield::memoryTest() {
     while(!digitalRead(MP3_DREQ)) ;
 
     //Select SPI Control channel
+	dcsTransaction();
     dcs_low();
 
     //SCI consists of instruction byte, address byte, and 16-bit data word.
@@ -531,6 +562,7 @@ uint16_t SFEMP3Shield::memoryTest() {
 
     //Deselect SPI Control channel
     dcs_high();
+	endTransaction();
 //  }
   delay(250);
 
@@ -1026,7 +1058,7 @@ uint8_t SFEMP3Shield::playTrack(uint8_t trackNo){
 
   //a storage place for track names
   char trackName[] = "track001.mp3";
-  uint8_t trackNumber = 1;
+//  uint8_t trackNumber = 1;
 
   //tack the number onto the rest of the filename
   sprintf(trackName, "track%03d.mp3", trackNo);
@@ -1071,7 +1103,7 @@ uint8_t SFEMP3Shield::playMP3(char* fileName, uint32_t timecode) {
   //Open the file in read mode.
   if(!track.open(fileName, O_READ)) return 2;
 
-  // find length of arrary at pointer
+  // find length of array at pointer
   int fileNamefileName_length = 0;
   while(*(fileName + fileNamefileName_length))
     fileNamefileName_length++;
@@ -1085,14 +1117,16 @@ uint8_t SFEMP3Shield::playMP3(char* fileName, uint32_t timecode) {
     }
   }
 
-  playing_state = playback;
+   playing_state = playback;
 
   Mp3WriteRegister(SCI_DECODE_TIME, 0); // Reset the Decode and bitrate from previous play back.
   delay(100); // experimentally found that we need to let this settle before sending data.
 
-  //gotta start feeding that hungry mp3 chip
-  refill();
+ // playing_state = playback;
 
+  //gotta start feeding that hungry mp3 chip
+
+  refill();
   //attach refill interrupt off DREQ line, pin 2
   enableRefill();
 
@@ -1108,9 +1142,9 @@ uint8_t SFEMP3Shield::playMP3(char* fileName, uint32_t timecode) {
  * And finally flush the VSdsp's stream buffer.
  */
 void SFEMP3Shield::stopTrack(){
-
+ 
   if(((playing_state != playback) && (playing_state != paused_playback)) || !digitalRead(MP3_RESET))
-    return;
+     return;
 
   //cancel external interrupt
   disableRefill();
@@ -1120,19 +1154,20 @@ void SFEMP3Shield::stopTrack(){
 
   flush_cancel(pre); //possible mode of "none" for faster response.
 
-  //Serial.println(F("Track is done!"));
+ Serial.println(F("Track is done!"));
 
 }
 
 //------------------------------------------------------------------------------
 /**
- * \brief Inidicate if a song is playing?
+ * \brief Indicate if a song is playing?
  *
  * Public method for determining if a file is streaming to the VSdsp.
  *
  * \return
  * - 0 indicates \b NO file is currently being streamed to the VSdsp.
- * - 1 indicates that a file is currently being streamed to the VSdsp.
+ * - 1 indicates that a file is currently being streamed to the VSdsp. 
+ * - 2 indicates that a file is currently being streamed and paused  to the VSdsp.
  * - 3 indicates that the VSdsp is in reset.
  */
 uint8_t SFEMP3Shield::isPlaying(){
@@ -1189,8 +1224,7 @@ void SFEMP3Shield::resumeDataStream(){
 
   if((playing_state == paused_playback) && digitalRead(MP3_RESET)) {
     //see if it is already ready for more
-    refill();
-
+   refill();
     playing_state = playback;
     //attach refill interrupt off DREQ line, pin 2
     enableRefill();
@@ -1294,8 +1328,7 @@ uint8_t SFEMP3Shield::skip(int32_t timecode){
     flush_cancel(pre); //possible mode of "none" for faster response.
 
     //gotta start feeding that hungry mp3 chip
-    refill();
-
+     refill();
     //again, I'm being bad and not following the spec sheet.
     //I already turned the volume down, so when the MP3 chip gets upset at me
     //for just slammin in new bits of the file, you won't hear it.
@@ -1351,8 +1384,7 @@ uint8_t SFEMP3Shield::skipTo(uint32_t timecode){
     flush_cancel(pre); //possible mode of "none" for faster response.
 
     //gotta start feeding that hungry mp3 chip
-    refill();
-
+     refill();
     //again, I'm being bad and not following the spec sheet.
     //I already turned the volume down, so when the MP3 chip gets upset at me
     //for just slammin in new bits of the file, you won't hear it.
@@ -1722,15 +1754,48 @@ void SFEMP3Shield::setBitRate(uint16_t bitr){
  * Primative function to configure the SPI's BitOrder, DataMode and ClockDivider to that of
  * the current VX10xx.
  *
- * \warning This sets the rate fast for write, too fast for reading. In the case of a subsequent SPI.transfer that is reading back data followup with a SPI.setClockDivider(spi_Read_Rate); as not to get gibberish.
+ * \warning This sets the rate fast for write, too fast for reading.
+ * In the case of a subsequent SPI.transfer that is reading back data followup
+ * with a SPI.setClockDivider(spi_Read_Rate); as not to get gibberish.
 */
 void SFEMP3Shield::spiInit() {
   //Set SPI bus for write
+
   SPI.setBitOrder(MSBFIRST);
   SPI.setDataMode(SPI_MODE0);
-  SPI.setClockDivider(spi_Write_Rate);
+  SPI.setClockDivider(spi_Write_Rate); 
+
 }
 
+
+//------------------------------------------------------------------------------
+/**
+ * \brief Initialize the Transactions SPI for VS10xx use.
+ *
+ * Primative function to configure the SPI's BitOrder, DataMode and ClockDivider to that of
+ * the current VX10xx.
+ *
+ */
+inline void SFEMP3Shield::csTransaction() {
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+		SPI.beginTransaction(csspiSettings);
+#endif		
+}
+inline void SFEMP3Shield::csReadTransaction() {
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+	SPI.beginTransaction(csreadspiSettings);
+#endif
+}
+inline void SFEMP3Shield::dcsTransaction() {
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+	SPI.beginTransaction(dcsspiSettings);
+#endif
+}
+inline void SFEMP3Shield::endTransaction() {
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+		SPI.endTransaction();
+#endif		
+}
 //------------------------------------------------------------------------------
 /**
  * \brief Select Control Channel
@@ -1739,10 +1804,14 @@ void SFEMP3Shield::spiInit() {
  * the current VX10xx. Then select the VS10xx's Control Chip Select as per
  * defined by MP3_XCS.
  *
- * \warning This uses spiInit() which sets the rate fast for write, too fast for reading. In the case of a subsequent SPI.transfer that is reading back data followup with a SPI.setClockDivider(spi_Read_Rate); as not to get gibberish.
+ * \warning This uses spiInit() which sets the rate fast for write, too fast for reading.
+ * In the case of a subsequent SPI.transfer that is reading back data followup
+ * with a SPI.setClockDivider(spi_Read_Rate); as not to get gibberish.
  */
 void SFEMP3Shield::cs_low() {
+#ifndef SFEMP3_USE_SPI_TRANSACTION
   spiInit();
+#endif
   digitalWrite(MP3_XCS, LOW);
 }
 
@@ -1755,6 +1824,7 @@ void SFEMP3Shield::cs_low() {
  */
 void SFEMP3Shield::cs_high() {
   digitalWrite(MP3_XCS, HIGH);
+
 }
 
 //------------------------------------------------------------------------------
@@ -1765,10 +1835,14 @@ void SFEMP3Shield::cs_high() {
  * the current VX10xx. Then select the VS10xx's Data Chip Select as per
  * defined by MP3_XDCS.
  *
- * \warning This uses spiInit() which sets the rate fast for write, too fast for reading. In the case of a subsequent SPI.transfer that is reading back data followup with a SPI.setClockDivider(spi_Read_Rate); as not to get gibberish.
+ * \warning This uses spiInit() which sets the rate fast for write, too fast for reading.
+ * In the case of a subsequent SPI.transfer that is reading back data followup
+ * with a SPI.setClockDivider(spi_Read_Rate); as not to get gibberish.
  */
 void SFEMP3Shield::dcs_low() {
+#ifndef SFEMP3_USE_SPI_TRANSACTION
   spiInit();
+#endif
   digitalWrite(MP3_XDCS, LOW);
 }
 
@@ -1814,14 +1888,12 @@ void SFEMP3Shield::Mp3WriteRegister(uint8_t addressbyte, uint8_t highbyte, uint8
 
   // skip if the chip is in reset.
   if(!digitalRead(MP3_RESET)) return;
-
   //cancel interrupt if playing
   if(playing_state == playback)
     disableRefill();
-
   //Wait for DREQ to go high indicating IC is available
   while(!digitalRead(MP3_DREQ)) ;
-
+csTransaction();
   cs_low(); //Select control
 
   //SCI consists of instruction byte, address byte, and 16-bit data word.
@@ -1831,16 +1903,17 @@ void SFEMP3Shield::Mp3WriteRegister(uint8_t addressbyte, uint8_t highbyte, uint8
   SPI.transfer(lowbyte);
   while(!digitalRead(MP3_DREQ)) ; //Wait for DREQ to go high indicating command is complete
   cs_high(); //Deselect Control
-
+endTransaction();
   //resume interrupt if playing.
   if(playing_state == playback) {
     //see if it is already ready for more
-    refill();
+#if !(USE_MP3_REFILL_MEANS == USE_MP3_INTx)
 
+#endif
+    refill();
     //attach refill interrupt off DREQ line, pin 2
     enableRefill();
   }
-
 }
 
 //------------------------------------------------------------------------------
@@ -1859,16 +1932,15 @@ uint16_t SFEMP3Shield::Mp3ReadRegister (uint8_t addressbyte){
 
   // skip if the chip is in reset.
   if(!digitalRead(MP3_RESET)) return 0;
-
   //cancel interrupt if playing
   if(playing_state == playback)
     disableRefill();
-
   while(!digitalRead(MP3_DREQ)) ; //Wait for DREQ to go high indicating IC is available
-
+csReadTransaction();
   cs_low(); //Select control
+#ifndef SFEMP3_USE_SPI_TRANSACTION
   SPI.setClockDivider(spi_Read_Rate); // correct the clock speed as from cs_low()
-
+#endif
   //SCI consists of instruction byte, address byte, and 16-bit data word.
   SPI.transfer(0x03);  //Read instruction
   SPI.transfer(addressbyte);
@@ -1879,12 +1951,11 @@ uint16_t SFEMP3Shield::Mp3ReadRegister (uint8_t addressbyte){
   while(!digitalRead(MP3_DREQ)) ; //Wait for DREQ to go high indicating command is complete
 
   cs_high(); //Deselect Control
-
+endTransaction();
   //resume interrupt if playing.
   if(playing_state == playback) {
     //see if it is already ready for more
     refill();
-
     //attach refill interrupt off DREQ line, pin 2
     enableRefill();
   }
@@ -1906,24 +1977,31 @@ uint16_t SFEMP3Shield::Mp3ReadWRAM (uint16_t addressbyte){
   unsigned short int tmp1,tmp2;
 
   //Set SPI bus for write
+#ifndef SFEMP3_USE_SPI_TRANSACTION
   spiInit();
   SPI.setClockDivider(spi_Read_Rate);
-
+#endif
+csReadTransaction();
   Mp3WriteRegister(SCI_WRAMADDR, addressbyte);
   tmp1 = Mp3ReadRegister(SCI_WRAM);
 
   Mp3WriteRegister(SCI_WRAMADDR, addressbyte);
   tmp2 = Mp3ReadRegister(SCI_WRAM);
 
-  if(tmp1==tmp2) return tmp1;
+  if(tmp1!=tmp2) 
+  {
   Mp3WriteRegister(SCI_WRAMADDR, addressbyte);
   tmp2 = Mp3ReadRegister(SCI_WRAM);
+  } 
 
-  if(tmp1==tmp2) return tmp1;
-  Mp3WriteRegister(SCI_WRAMADDR, addressbyte);
-  tmp2 = Mp3ReadRegister(SCI_WRAM);
-
-  if(tmp1==tmp2) return tmp1;
+  if(tmp1!=tmp2)
+  {
+    Mp3WriteRegister(SCI_WRAMADDR, addressbyte);
+    tmp2 = Mp3ReadRegister(SCI_WRAM);
+  }
+ endTransaction();
+//  if(tmp1==tmp2) Serial.println(tmp1, HEX);
+//  Serial.println(tmp2, HEX);
   return tmp1;
 }
 
@@ -1972,18 +2050,21 @@ void SFEMP3Shield::available() {
  * closed, the playing indicator is set to false, interrupts for refilling are
  * disabled and the VSdsp's data stream buffer is flushed appropiately.
  */
+
 void SFEMP3Shield::refill() {
 
-  //Serial.println(F("filling"));
+// Serial.println(F("refill"));
 #if PERF_MON_PIN != -1
   digitalWrite(PERF_MON_PIN,LOW);
 #endif
-
   // no need to keep interrupts blocked, allow other ISR such as timer0 to continue
 #if !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
-  sei();
+#ifdef SFEMP3_USE_SPI_TRANSACTION
+// It seems that SPI useInterrupt cannot release the int, so...
+  if (playing_state == ready) return;
 #endif
-
+  interrupts();
+#endif
   while(digitalRead(MP3_DREQ)) {
 
     if(!track.read(mp3DataBuffer, sizeof(mp3DataBuffer))) { //Go out to SD card and try reading 32 new bytes of the song
@@ -2003,18 +2084,19 @@ void SFEMP3Shield::refill() {
 
     //Once DREQ is released (high) we now feed 32 bytes of data to the VS1053 from our SD read buffer
 #if !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
-    cli(); // allow transfer to occur with out interruption.
+    noInterrupts(); // allow transfer to occur with out interruption.
 #endif
+dcsTransaction();
     dcs_low(); //Select Data
     for(uint8_t y = 0 ; y < sizeof(mp3DataBuffer) ; y++) {
-      //while(!digitalRead(MP3_DREQ)); // wait until DREQ is or goes high // turns out it is not needed.
+//      while(!digitalRead(MP3_DREQ)); // wait until DREQ is or goes high // turns out it is not needed.
       SPI.transfer(mp3DataBuffer[y]); // Send SPI byte
     }
-
     dcs_high(); //Deselect Data
+endTransaction();
     //We've just dumped 32 bytes into VS1053 so our SD read buffer is empty. go get more data
 #if !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
-    sei();
+    interrupts();
 #endif
   }
 
@@ -2027,7 +2109,7 @@ void SFEMP3Shield::refill() {
 /**
  * \brief Play hardcoded MIDI file
  *
- * This the primative function to fill the VSdsp's buffers quicly. The intention
+ * This the primitive function to fill the VSdsp's buffers quickly. The intention
  * is to send a quick MIDI file of a single note on and off. This can be used 
  * responses to buttons and such. Where the MIDI file is short enough to be 
  * stored into an array that can be delivered via SPI to the VSdsp's data stream 
@@ -2050,9 +2132,9 @@ void SFEMP3Shield::SendSingleMIDInote() {
   while(!digitalRead(MP3_DREQ)); 
 
 #if !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
-  cli(); // allow transfer to occur with out interruption.
+  noInterrupts(); // allow transfer to occur with out interruption.
 #endif
-
+dcsTransaction();
   dcs_low(); //Select Data
   for(uint8_t y = 0 ; y < sizeof(SingleMIDInoteFile) ; y++) { // sizeof(mp3DataBuffer)
     // Every 32 check if not ready for next buffer chunk.
@@ -2062,9 +2144,9 @@ void SFEMP3Shield::SendSingleMIDInote() {
     SPI.transfer( pgm_read_byte_near( &(SingleMIDInoteFile[y]))); // Send next byte
   }
   dcs_high(); //Deselect Data
-
+endTransaction();
 #if !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
-  sei();  // renable interrupts for other processes
+  interrupts();  // renable interrupts for other processes
 #endif
 
   flush_cancel(none); // need to quickly purge the exiting format of decoder.
@@ -2129,43 +2211,46 @@ void SFEMP3Shield::flush_cancel(flush_m mode) {
   int8_t endFillByte = (int8_t) (Mp3ReadWRAM(para_endFillByte) & 0xFF);
 
   if((mode == post) || (mode == both)) {
-
+dcsTransaction();
     dcs_low(); //Select Data
     for(int y = 0 ; y < 2052 ; y++) {
       while(!digitalRead(MP3_DREQ)); // wait until DREQ is or goes high
       SPI.transfer(endFillByte); // Send SPI byte
     }
     dcs_high(); //Deselect Data
+endTransaction();
   }
 
   for (int n = 0; n < 64 ; n++)
   {
 //    Mp3WriteRegister(SCI_MODE, SM_LINE1 | SM_SDINEW | SM_CANCEL); // old way of SCI_MODE WRITE.
     Mp3WriteRegister(SCI_MODE, (Mp3ReadRegister(SCI_MODE) | SM_CANCEL));
-
+dcsTransaction();
     dcs_low(); //Select Data
     for(int y = 0 ; y < 32 ; y++) {
       while(!digitalRead(MP3_DREQ)); // wait until DREQ is or goes high
       SPI.transfer(endFillByte); // Send SPI byte
     }
     dcs_high(); //Deselect Data
-
+endTransaction();
     int cancel = Mp3ReadRegister(SCI_MODE) & SM_CANCEL;
     if(cancel == 0) {
       // Cancel has succeeded.
       if((mode == pre) || (mode == both)) {
+	    dcsTransaction();
         dcs_low(); //Select Data
         for(int y = 0 ; y < 2052 ; y++) {
           while(!digitalRead(MP3_DREQ)); // wait until DREQ is or goes high
           SPI.transfer(endFillByte); // Send SPI byte
         }
         dcs_high(); //Deselect Data
+		endTransaction();
       }
       return;
     }
   }
   // Cancel has not succeeded.
-  //Serial.println(F("Warning: VS10XX chip did not cancel, reseting chip!"));
+ // Serial.println(F("Warning: VS10XX chip did not cancel, reseting chip!"));
 //  Mp3WriteRegister(SCI_MODE, SM_LINE1 | SM_SDINEW | SM_RESET); // old way of SCI_MODE WRITE.
   Mp3WriteRegister(SCI_MODE, (Mp3ReadRegister(SCI_MODE) | SM_RESET));  // software reset. but vs_init will HW reset anyways.
 //  vs_init(); // perform hardware reset followed by re-initializing.

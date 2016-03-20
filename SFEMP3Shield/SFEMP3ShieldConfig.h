@@ -51,6 +51,16 @@ Support for Arduino Leonardo is afflicted by having the SPI pins not routing the
 #ifndef SFEMP3ShieldConfig_h
 #define SFEMP3ShieldConfig_h
 
+/**
+ * \defLCSOFT
+ * \brief A macro to configure use on a LCSOFT MP3 player shield
+ *
+ * LCSOFT MP3 Players is supported. 
+ * Looks like the LCsoft board is missing a trace or resistor to make it play mp3’s.
+ * The board boots the VS1053 chip in midi mode. 
+ * If LCSOFT is defined to 1, a patch is used to boot in mp3 mode.
+ */
+#define LCSOFT 1
 //------------------------------------------------------------------------------
 
 /**
@@ -246,9 +256,12 @@ Support for Arduino Leonardo is afflicted by having the SPI pins not routing the
   #define MP3_XDCS             7 //Data Chip Select / BSYNC Pin
   #define MP3_DREQ             2 //Data Request Pin: Player asks for more data
   #if defined(__AVR_ATmega32U4__)
-    #define MP3_DREQINT          1 //Corresponding INTx for DREQ pin
+    #define MP3_DREQINT        1 //Corresponding INTx for DREQ pin
+  #elif	defined ARDUINO_SAM_DUE
+  #define MP3_DREQINT         2  //for due
   #else // swapped between Uno and Leonardo.
-    #define MP3_DREQINT          0 //Corresponding INTx for DREQ pin
+    #define MP3_DREQINT       0 //Corresponding INTx for DREQ pin
+  
   #endif
   #define MP3_RESET            8 //Reset is active low
   #if ( GRAVITECH == 1 )
@@ -410,7 +423,13 @@ Support for Arduino Leonardo is afflicted by having the SPI pins not routing the
  */
 #define MIDI_INTENSITY         127 // Full scale.
 
-
+/**
+* \def SFEMP3_USE_SPI_TRANSACTION
+* \brief A macro used to specify that the Spi uses Transactions api
+*
+* Needed if other Spi devices are connected.
+*/
+#define SFEMP3_USE_SPI_TRANSACTION
 
 
 #endif  // SFEMP3ShieldConfig_h

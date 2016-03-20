@@ -15,7 +15,7 @@
 
 //Not neccessary, but just in case.
 #if ARDUINO > 22
-#include "Arduino.h"
+#include <Arduino.h>
 #else
 #include "WProgram.h"
 #endif
@@ -720,12 +720,17 @@ class SFEMP3Shield {
   private:
     static SdFile track;
     static void refill();
+    static void refillint();
     static void flush_cancel(flush_m);
     static void spiInit();
     static void cs_low();
     static void cs_high();
     static void dcs_low();
     static void dcs_high();
+	static void csTransaction();
+	static void csReadTransaction();
+	static void dcsTransaction();
+	static void endTransaction();	
     static void Mp3WriteRegister(uint8_t, uint8_t, uint8_t);
     static void Mp3WriteRegister(uint8_t, uint16_t);
     static uint16_t Mp3ReadRegister (uint8_t);
@@ -736,13 +741,13 @@ class SFEMP3Shield {
     static void disableRefill();
     void getBitRateFromMP3File(char*);
     uint8_t VSLoadUserCode(char*);
-
     //Create the variables to be used by SdFat Library
 
 /** \brief Boolean flag indicating if filehandle is streaming.*/
     static state_m playing_state;
 
 /** \brief Rate of the SPI to be used with communicating to the VSdsp.*/
+
     static uint16_t spi_Read_Rate;
     static uint16_t spi_Write_Rate;
 
@@ -796,6 +801,9 @@ union sci_bass_m {
  */
 char* strip_nonalpha_inplace(char *s);
 bool isFnMusic(char*);
+static SPISettings csspiSettings;
+static SPISettings csreadspiSettings;
+static SPISettings dcsspiSettings;
 
 //------------------------------------------------------------------------------
 /*
