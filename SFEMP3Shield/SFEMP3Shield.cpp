@@ -1178,7 +1178,7 @@ uint8_t SFEMP3Shield::isPlaying(){
   else if(getState() == playback)
     result = 1;
   else if(getState() == paused_playback)
-    result = 1;
+    result = 2;
   else
     result = 0;
 
@@ -2052,7 +2052,6 @@ void SFEMP3Shield::available() {
  */
 
 void SFEMP3Shield::refill() {
-
 // Serial.println(F("refill"));
 #if PERF_MON_PIN != -1
   digitalWrite(PERF_MON_PIN,LOW);
@@ -2066,10 +2065,14 @@ void SFEMP3Shield::refill() {
   interrupts();
 #endif
   while(digitalRead(MP3_DREQ)) {
-
-    if(!track.read(mp3DataBuffer, sizeof(mp3DataBuffer))) { //Go out to SD card and try reading 32 new bytes of the song
-      track.close(); //Close out this track
+    unsigned ner=0;
+    int nbb = track.read(mp3DataBuffer, sizeof(mp3DataBuffer));
+    while ((nbb < 0)&& (ner < 32)) {nbb = track.read(mp3DataBuffer, sizeof(mp3DataBuffer)); ner++;}
+	if ((nbb ==0) || (ner >= 32)) //eof or too much error
+	{
+	 //Go out to SD card and try reading 32 new bytes of the song
       playing_state = ready;
+      track.close(); //Close out this track
 
       //cancel external interrupt
       disableRefill();
