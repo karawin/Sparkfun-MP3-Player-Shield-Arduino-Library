@@ -720,7 +720,6 @@ class SFEMP3Shield {
   private:
     static SdFile track;
     static void refill();
-    static void refillint();
     static void flush_cancel(flush_m);
     static void spiInit();
     static void cs_low();

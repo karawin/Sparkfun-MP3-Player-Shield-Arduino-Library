@@ -257,21 +257,17 @@ Serial.println(" vainit0");
   dcsspiSettings = SPISettings(1000000, MSBFIRST, SPI_MODE0);
 #endif
    //Let's check the status of the VS1053
-Serial.println(" vainit");
 
 #if ( LCSOFT == 1 ) 
 ///////added to go in mp3
    uint16_t temp1 = 0xc017;
    uint16_t temp2 = 0xc019;
    Mp3WriteWRAM( temp1, 3 ); // GPIO DDR register
-   Serial.println(" vainit22");
    Mp3WriteWRAM( temp2, 0 ); // GPIO ODATA register
-   Serial.println(" vainit23");
    Mp3WriteRegister(SCI_MODE, SM_LINE1 | SM_SDINEW | SM_RESET); // soft reset
    delay (100); 
 /////////////////////////////////////////////////////  
 #endif
-Serial.println(" vainit2");
 
   int MP3Mode = Mp3ReadRegister(SCI_MODE);
 /*
@@ -286,7 +282,6 @@ Serial.println(" vainit2");
   Serial.print(F("SCI_ClockF = 0x"));
   Serial.println(MP3Clock, HEX);
  */ 
-Serial.println(" vainit3");
 
   if(MP3Mode != (SM_LINE1 | SM_SDINEW)) return 4;
 
@@ -305,9 +300,9 @@ Serial.println(" vainit3");
   delay(10); // settle time
 #ifdef SFEMP3_USE_SPI_TRANSACTION
 Serial.print("spi-read = ");Serial.println(String(spi_Read_Rate));
-  csspiSettings = SPISettings(4000000, MSBFIRST, SPI_MODE0);
-  csreadspiSettings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
-  dcsspiSettings = SPISettings(4000000, MSBFIRST, SPI_MODE0);
+  csspiSettings = SPISettings(9000000, MSBFIRST, SPI_MODE0);
+  csreadspiSettings = SPISettings(6000000, MSBFIRST, SPI_MODE0);
+  dcsspiSettings = SPISettings(9000000, MSBFIRST, SPI_MODE0);
 #endif
   //test reading after data rate change
   int MP3Clock = Mp3ReadRegister(SCI_CLOCKF);
@@ -317,7 +312,7 @@ Serial.print("spi-read = ");Serial.println(String(spi_Read_Rate));
   // one would think the following patch would over write the volume.
   // But the SCI_VOL register space is not in the VSdsp's WRAM space.
   // Note to keep an eye on it for future patches.
-  if(VSLoadUserCode("patches.053")) return 6;
+  if(VSLoadUserCode("patchesf.053")) return 6;
 
   delay(100); // just a good idea to let settle.
 Serial.println(" vainit end");
@@ -1061,8 +1056,13 @@ uint8_t SFEMP3Shield::playTrack(uint8_t trackNo){
 //  uint8_t trackNumber = 1;
 
   //tack the number onto the rest of the filename
-  sprintf(trackName, "track%03d.mp3", trackNo);
-
+  sprintf(trackName, "track%03d.fla", trackNo);
+  if(!track.open(trackName, O_READ))
+  {
+    sprintf(trackName, "track%03d.mp3", trackNo);
+    Serial.println ("fla not found");
+  } else track.close();
+  
   //play the file
   return playMP3(trackName);
 }
@@ -1103,11 +1103,11 @@ uint8_t SFEMP3Shield::playMP3(char* fileName, uint32_t timecode) {
   //Open the file in read mode.
   if(!track.open(fileName, O_READ)) return 2;
 
-  // find length of array at pointer
+ /* // find length of array at pointer
   int fileNamefileName_length = 0;
   while(*(fileName + fileNamefileName_length))
     fileNamefileName_length++;
-
+*/
   // Only know how to read bitrate from MP3 file. ignore the rest.
   // Note bitrate may get updated later by getAudioInfo()
   if(strstr(strlwr(fileName), "mp3") )  {
@@ -1117,7 +1117,7 @@ uint8_t SFEMP3Shield::playMP3(char* fileName, uint32_t timecode) {
     }
   }
 
-   playing_state = playback;
+  playing_state = playback;
 
   Mp3WriteRegister(SCI_DECODE_TIME, 0); // Reset the Decode and bitrate from previous play back.
   delay(100); // experimentally found that we need to let this settle before sending data.
@@ -1125,11 +1125,11 @@ uint8_t SFEMP3Shield::playMP3(char* fileName, uint32_t timecode) {
  // playing_state = playback;
 
   //gotta start feeding that hungry mp3 chip
-
   refill();
+
   //attach refill interrupt off DREQ line, pin 2
   enableRefill();
-
+ 
   return 0;
 }
 
@@ -1154,7 +1154,7 @@ void SFEMP3Shield::stopTrack(){
 
   flush_cancel(pre); //possible mode of "none" for faster response.
 
- Serial.println(F("Track is done!"));
+ //Serial.println(F("Track is done!"));
 
 }
 
@@ -1224,8 +1224,8 @@ void SFEMP3Shield::resumeDataStream(){
 
   if((playing_state == paused_playback) && digitalRead(MP3_RESET)) {
     //see if it is already ready for more
-   refill();
     playing_state = playback;
+   refill();
     //attach refill interrupt off DREQ line, pin 2
     enableRefill();
   }
@@ -1493,11 +1493,14 @@ void SFEMP3Shield::trackAlbum(char* infobuffer){
  * Restoring the file position to where it left off, before resuming.
  */
 void SFEMP3Shield::getTrackInfo(uint8_t offset, char* infobuffer){
-
+uint8_t state = playing_state;
   //disable interupts
-  if(playing_state == playback) {
-    disableRefill();
+  if(state == playback) {
+    pauseDataStream();
+//    disableRefill();
   }
+  
+
 
   //record current file position
   uint32_t currentPos = track.curPosition();
@@ -1513,9 +1516,11 @@ void SFEMP3Shield::getTrackInfo(uint8_t offset, char* infobuffer){
   track.seekSet(currentPos);
 
   //renable interupt
-  if(playing_state == playback) {
-    enableRefill();
+  if(state == playback) {
+//    enableRefill();
+	resumeDataStream();
   }
+
 
 }
 
@@ -2040,7 +2045,7 @@ void SFEMP3Shield::available() {
 /**
  * \brief Refill the VS10xx buffer with new data
  *
- * This the primative function to refilling the VSdsp's buffers. And is
+ * This the primitive function to refilling the VSdsp's buffers. And is
  * typically called as an interrupt to the rising edge of the VS10xx's DREQ.
  * Where if the DREQ is indicating not full, it will read 32 bytes from the
  * filehandle's track and send them via SPI to the VSdsp's data stream buffer.
@@ -2048,27 +2053,22 @@ void SFEMP3Shield::available() {
  *
  * When the filehandle's track indicates it is at the end of file. The track is
  * closed, the playing indicator is set to false, interrupts for refilling are
- * disabled and the VSdsp's data stream buffer is flushed appropiately.
+ * disabled and the VSdsp's data stream buffer is flushed appropriately.
  */
 
 void SFEMP3Shield::refill() {
-// Serial.println(F("refill"));
 #if PERF_MON_PIN != -1
   digitalWrite(PERF_MON_PIN,LOW);
 #endif
+
   // no need to keep interrupts blocked, allow other ISR such as timer0 to continue
 #if !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
-#ifdef SFEMP3_USE_SPI_TRANSACTION
-// It seems that SPI useInterrupt cannot release the int, so...
-  if (playing_state == ready) return;
-#endif
   interrupts();
 #endif
+
   while(digitalRead(MP3_DREQ)) {
-    unsigned ner=0;
-    int nbb = track.read(mp3DataBuffer, sizeof(mp3DataBuffer));
-    while ((nbb < 0)&& (ner < 32)) {nbb = track.read(mp3DataBuffer, sizeof(mp3DataBuffer)); ner++;}
-	if ((nbb ==0) || (ner >= 32)) //eof or too much error
+
+	if (!track.read(mp3DataBuffer, sizeof(mp3DataBuffer)))
 	{
 	 //Go out to SD card and try reading 32 new bytes of the song
       playing_state = ready;
@@ -2091,7 +2091,7 @@ void SFEMP3Shield::refill() {
 #endif
 dcsTransaction();
     dcs_low(); //Select Data
-    for(uint8_t y = 0 ; y < sizeof(mp3DataBuffer) ; y++) {
+    for(uint8_t y = 0 ; y < 32/*sizeof(mp3DataBuffer)*/ ; y++) {
 //      while(!digitalRead(MP3_DREQ)); // wait until DREQ is or goes high // turns out it is not needed.
       SPI.transfer(mp3DataBuffer[y]); // Send SPI byte
     }
@@ -2183,13 +2183,22 @@ void SFEMP3Shield::enableRefill() {
  * Depending upon the means selected to request refill of the VSdsp's data
  * stream buffer, this routine will disable the corresponding service.
  */
+ /*
+ *  Empty interrupt
+ */
+ void norefill(){;}
+
 void SFEMP3Shield::disableRefill() {
 #if defined(USE_MP3_REFILL_MEANS) && USE_MP3_REFILL_MEANS == USE_MP3_Timer1
   Timer1.detachInterrupt();
 #elif defined(USE_MP3_REFILL_MEANS) && USE_MP3_REFILL_MEANS == USE_MP3_SimpleTimer
   timer.disable(timerId_mp3);
 #elif !defined(USE_MP3_REFILL_MEANS) || USE_MP3_REFILL_MEANS == USE_MP3_INTx
+#ifndef SFEMP3_USE_SPI_TRANSACTION
   detachInterrupt(MP3_DREQINT);
+#else
+  attachInterrupt(MP3_DREQINT, norefill, RISING);
+#endif
 #endif
 }
 
@@ -2385,6 +2394,7 @@ bool isFnMusic(char* filename) {
      || strstr(strlwr(filename + (len - 4)), ".wav")
      || strstr(strlwr(filename + (len - 4)), ".fla")
      || strstr(strlwr(filename + (len - 4)), ".mid")
+     || strstr(strlwr(filename + (len - 4)), ".ogg")
     ) {
     result = true;
   } else {
